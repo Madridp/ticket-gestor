@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestor de Tickets - IGSS Consultorio Chiquimula</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--morado:#5B2A86;--morado2:#7C4DB0;--morado3:#efeaf7;--gris:#f5f3f9;
+        --texto:#2b2b3a;--borde:#e3dced;--verde:#2e9e5b;--amarillo:#e0a800;--rojo:#c0392b;--azul:#2d6cdf;}
+  *{box-sizing:border-box;font-family:'Segoe UI',Roboto,Arial,sans-serif}
+  body{margin:0;background:#eef0f5;color:var(--texto)}
+  /* Login */
+  #login{position:fixed;inset:0;background:linear-gradient(135deg,#5B2A86,#7C4DB0);display:flex;align-items:center;justify-content:center;z-index:100}
+  #login .card{background:#fff;border-radius:16px;padding:34px 30px;width:340px;box-shadow:0 20px 50px rgba(0,0,0,.25);text-align:center}
+  #login h1{font-size:18px;color:var(--morado);margin:6px 0 2px}
+  #login p{font-size:12px;color:#888;margin:0 0 18px}
+  #login input{width:100%;padding:11px 12px;border:1px solid var(--borde);border-radius:8px;margin-bottom:12px;font-size:14px}
+  #login button{width:100%;padding:11px;background:var(--morado);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer}
+  #login .err{color:var(--rojo);font-size:12px;height:16px;margin-bottom:6px}
+  .logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#5B2A86,#7C4DB0);color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 6px}
+  /* Layout */
+  .app{display:none;grid-template-columns:230px 1fr;min-height:100vh}
+  .side{background:#2a1440;color:#cfc3e0;padding:0;position:sticky;top:0;height:100vh}
+  .brand{padding:20px;font-size:15px;font-weight:600;color:#fff;border-bottom:1px solid #3d2857;display:flex;gap:10px;align-items:center}
+  .nav a{display:flex;gap:10px;align-items:center;padding:13px 20px;color:#cfc3e0;text-decoration:none;font-size:14px;cursor:pointer;border-left:3px solid transparent}
+  .nav a:hover{background:#33194d}
+  .nav a.active{background:#3d2857;color:#fff;border-left-color:var(--morado2)}
+  .main{padding:0}
+  .topbar{background:#fff;padding:14px 26px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--borde);position:sticky;top:0;z-index:5}
+  .topbar h2{margin:0;font-size:17px;color:var(--morado)}
+  .topbar .user{font-size:13px;color:#666}
+  .topbar .user b{color:var(--texto)}
+  .topbar button{margin-left:14px;background:none;border:1px solid var(--borde);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;color:#666}
+  .content{padding:26px}
+  .section{display:none}
+  .section.active{display:block}
+  /* Cards */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
+  .stat{background:#fff;border-radius:12px;padding:18px;box-shadow:0 4px 14px rgba(60,20,90,.06);border-top:3px solid var(--morado)}
+  .stat .n{font-size:28px;font-weight:700;color:var(--morado)}
+  .stat .l{font-size:12px;color:#888;margin-top:2px}
+  .stat.abierto{border-top-color:var(--azul)} .stat.abierto .n{color:var(--azul)}
+  .stat.proceso{border-top-color:var(--amarillo)} .stat.proceso .n{color:var(--amarillo)}
+  .stat.cerrado{border-top-color:var(--verde)} .stat.cerrado .n{color:var(--verde)}
+  .panel{background:#fff;border-radius:12px;padding:20px;box-shadow:0 4px 14px rgba(60,20,90,.06);margin-bottom:20px}
+  .panel h3{margin:0 0 14px;font-size:15px;color:var(--morado)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--borde)}
+  th{color:#888;font-weight:600;font-size:12px}
+  .badge{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-Abierto{background:#e7f0ff;color:var(--azul)}
+  .b-Enproceso{background:#fff5db;color:var(--amarillo)}
+  .b-Cerrado{background:#e6f7ec;color:var(--verde)}
+  .pri-Alta{color:var(--rojo);font-weight:600}.pri-Media{color:var(--amarillo)}.pri-Baja{color:#888}
+  select,input,textarea{font-family:inherit;padding:9px 10px;border:1px solid var(--borde);border-radius:8px;font-size:13px;width:100%}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+  .btn{background:var(--morado);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer}
+  .btn.sec{background:#fff;color:var(--morado);border:1px solid var(--morado)}
+  .filters{display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+  .filters select{width:auto}
+  .mini{font-size:11px;color:#aaa}
+  .config-warn{background:#fff3cd;border:1px solid #ffe08a;color:#7a5c00;padding:12px 14px;border-radius:8px;font-size:13px;margin-bottom:16px}
+  /* Chatbot */
+  #cbtn{position:fixed;bottom:24px;right:24px;width:58px;height:58px;border-radius:50%;background:var(--morado);color:#fff;border:none;font-size:26px;cursor:pointer;box-shadow:0 8px 24px rgba(60,20,90,.4);z-index:50}
+  #cbox{position:fixed;bottom:92px;right:24px;width:340px;height:460px;background:#fff;border-radius:16px;box-shadow:0 16px 46px rgba(60,20,90,.3);display:none;flex-direction:column;overflow:hidden;z-index:50}
+  #cbox .ch{background:linear-gradient(120deg,var(--morado),var(--morado2));color:#fff;padding:12px 16px;font-size:14px}
+  #cbox .ch small{display:block;opacity:.85;font-size:11px}
+  #cmsgs{flex:1;overflow-y:auto;padding:12px;background:var(--gris);display:flex;flex-direction:column;gap:8px}
+  .cm{max-width:82%;padding:9px 12px;border-radius:13px;font-size:13px;line-height:1.35}
+  .cm.bot{background:#fff;border:1px solid var(--borde);align-self:flex-start;border-bottom-left-radius:3px}
+  .cm.user{background:var(--morado);color:#fff;align-self:flex-end;border-bottom-right-radius:3px}
+  #cquick{display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px;background:var(--gris)}
+  #cquick button{background:#fff;border:1px solid var(--morado);color:var(--morado);border-radius:16px;padding:5px 10px;font-size:11px;cursor:pointer}
+  #cin{display:flex;border-top:1px solid var(--borde);padding:8px;gap:6px}
+  #cin input{flex:1}
+  #cin button{background:var(--morado);color:#fff;border:none;border-radius:8px;padding:0 14px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="card">
+    <div class="logo">🎫</div>
+    <h1>Gestor de Tickets</h1>
+    <p>IGSS Consultorio Chiquimula</p>
+    <div class="err" id="loginErr"></div>
+    <input id="luser" placeholder="Usuario" value="admin@igss">
+    <input id="lpass" type="password" placeholder="Contraseña">
+    <button onclick="login()">Ingresar</button>
+    <p style="margin-top:14px">Demo: <b>admin@igss</b> / <b>igss2025</b></p>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+  <aside class="side">
+    <div class="brand">🎫 Gestor de Tickets</div>
+    <nav class="nav" id="nav">
+      <a data-s="dashboard" class="active">📊 Dashboard</a>
+      <a data-s="tickets">🎟️ Tickets</a>
+      <a data-s="nuevo">➕ Nuevo ticket</a>
+      <a data-s="kb">📚 Base de conocimientos</a>
+      <a data-s="usuarios">👥 Usuarios</a>
+      <a data-s="config">⚙️ Configuración</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <h2 id="secTitle">Dashboard</h2>
+      <div class="user">Sesión: <b id="who">admin@igss</b>
+        <button onclick="logout()">Salir</button>
+      </div>
+    </div>
+    <div class="content">
+      <div id="cfgWarn" class="config-warn" style="display:none">
+        ⚠️ La base de datos no está configurada todavía. Abre <b>index.html</b> y coloca tu <b>SUPABASE_URL</b> y <b>SUPABASE_ANON_KEY</b> (ver README). Mientras tanto, los tickets se guardan solo en memoria y se pierden al recargar.
+      </div>
+
+      <!-- DASHBOARD -->
+      <section class="section active" id="dashboard">
+        <div class="stats">
+          <div class="stat"><div class="n" id="stTotal">0</div><div class="l">Tickets totales</div></div>
+          <div class="stat abierto"><div class="n" id="stAbierto">0</div><div class="l">Abiertos</div></div>
+          <div class="stat proceso"><div class="n" id="stProceso">0</div><div class="l">En proceso</div></div>
+          <div class="stat cerrado"><div class="n" id="stCerrado">0</div><div class="l">Cerrados</div></div>
+        </div>
+        <div class="panel">
+          <h3>Tickets recientes</h3>
+          <table><thead><tr><th>ID</th><th>Categoría</th><th>Descripción</th><th>Estado</th><th>Origen</th><th>Fecha</th></tr></thead>
+          <tbody id="recentBody"></tbody></table>
+        </div>
+        <div class="panel">
+          <h3>Distribución por categoría</h3>
+          <div id="catDist"></div>
+        </div>
+      </section>
+
+      <!-- TICKETS -->
+      <section class="section" id="tickets">
+        <div class="panel">
+          <h3>Listado de tickets</h3>
+          <div class="filters">
+            <label class="mini">Estado:</label>
+            <select id="fEstado" onchange="renderTickets()">
+              <option value="">Todos</option><option>Abierto</option><option>En proceso</option><option>Cerrado</option>
+            </select>
+            <label class="mini">Categoría:</label>
+            <select id="fCat" onchange="renderTickets()"><option value="">Todas</option></select>
+            <button class="btn sec" onclick="loadTickets()">🔄 Actualizar</button>
+          </div>
+          <table><thead><tr><th>ID</th><th>Categoría</th><th>Descripción</th><th>Prioridad</th><th>Técnico</th><th>Estado</th><th>Origen</th><th>Fecha</th></tr></thead>
+          <tbody id="ticketsBody"></tbody></table>
+        </div>
+      </section>
+
+      <!-- NUEVO -->
+      <section class="section" id="nuevo">
+        <div class="panel" style="max-width:640px">
+          <h3>Registrar nuevo ticket</h3>
+          <div class="row">
+            <div><label class="mini">Categoría</label><select id="nCat"></select></div>
+            <div><label class="mini">Prioridad</label><select id="nPri"><option>Baja</option><option selected>Media</option><option>Alta</option></select></div>
+          </div>
+          <div style="margin-bottom:12px"><label class="mini">Descripción del problema</label>
+            <textarea id="nDesc" rows="4" placeholder="Describa el incidente..."></textarea></div>
+          <div class="row">
+            <div><label class="mini">Técnico asignado (opcional)</label><input id="nTec" placeholder="Sin asignar"></div>
+            <div style="display:flex;align-items:flex-end"><button class="btn" onclick="crearManual()">Guardar ticket</button></div>
+          </div>
+          <div id="nMsg" class="mini"></div>
+        </div>
+      </section>
+
+      <!-- KB -->
+      <section class="section" id="kb">
+        <div class="panel">
+          <h3>Base de conocimientos</h3>
+          <div id="kbList"></div>
+        </div>
+      </section>
+
+      <!-- USUARIOS -->
+      <section class="section" id="usuarios">
+        <div class="panel">
+          <h3>Usuarios</h3>
+          <table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th></tr></thead>
+          <tbody>
+            <tr><td>Pedro García</td><td>admin@igss</td><td>Administrador</td></tr>
+            <tr><td>Soporte técnico 1</td><td>tecnico1@igss</td><td>Técnico</td></tr>
+            <tr><td>Soporte técnico 2</td><td>tecnico2@igss</td><td>Técnico</td></tr>
+          </tbody></table>
+        </div>
+      </section>
+
+      <!-- CONFIG -->
+      <section class="section" id="config">
+        <div class="panel" style="max-width:640px">
+          <h3>Configuración</h3>
+          <p class="mini">Categorías de incidentes disponibles en el sistema:</p>
+          <div id="cfgCats" style="margin:10px 0"></div>
+          <p class="mini">Estado de conexión con la base de datos:</p>
+          <div id="dbState" style="margin-top:6px;font-size:13px"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- CHATBOT -->
+<button id="cbtn" onclick="toggleChat()">💬</button>
+<div id="cbox">
+  <div class="ch">Asistente de Soporte Técnico<small>IGSS Consultorio Chiquimula</small></div>
+  <div id="cmsgs"></div>
+  <div id="cquick"></div>
+  <div id="cin"><input id="ctxt" placeholder="Escriba su problema..." autocomplete="off"><button onclick="cSend()">➤</button></div>
+</div>
+
+<script>
+/* ====================== CONFIGURACIÓN ======================
+   Pega aquí los datos de tu proyecto Supabase (ver README_DESPLIEGUE.md) */
+const SUPABASE_URL = "https://znlmgpampspodkvucbpl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_7UyGOJljlasEhVUo4CH2RA_seAp5h-R";
+/* ========================================================== */
+
+const CATS = ['Red o internet','Impresora','Acceso a sistemas','Falla de equipo','Software','Correo electrónico','Otro'];
+let db = null, useDB = false, tickets = [];
+
+function initDB(){
+  if(SUPABASE_URL && SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith('TU_')){
+    try{ db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); useDB = true; }catch(e){ useDB=false; }
+  }
+  document.getElementById('cfgWarn').style.display = useDB ? 'none' : 'block';
+  document.getElementById('dbState').innerHTML = useDB
+    ? '🟢 Conectado a Supabase (PostgreSQL)'
+    : '🔴 Sin configurar — los tickets no se guardarán de forma permanente';
+}
+
+/* ---------- Login (demo) ---------- */
+function login(){
+  const u=document.getElementById('luser').value.trim();
+  const p=document.getElementById('lpass').value;
+  if(u==='admin@igss' && p==='igss2025'){
+    document.getElementById('login').style.display='none';
+    document.getElementById('app').style.display='grid';
+    document.getElementById('who').textContent=u;
+    boot();
+  }else{
+    document.getElementById('loginErr').textContent='Usuario o contraseña incorrectos.';
+  }
+}
+function logout(){ location.reload(); }
+
+/* ---------- Navegación ---------- */
+document.getElementById('nav').addEventListener('click',e=>{
+  const a=e.target.closest('a'); if(!a)return;
+  document.querySelectorAll('#nav a').forEach(x=>x.classList.remove('active'));
+  a.classList.add('active');
+  const s=a.dataset.s;
+  document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
+  document.getElementById(s).classList.add('active');
+  document.getElementById('secTitle').textContent=a.textContent.replace(/^[^\wÁÉÍÓÚ]+/,'').trim();
+});
+
+/* ---------- Datos ---------- */
+async function loadTickets(){
+  if(useDB){
+    const {data,error}=await db.from('tickets').select('*').order('id',{ascending:false});
+    if(!error) tickets=data||[];
+  }
+  render();
+}
+async function createTicket(t){
+  t.estado=t.estado||'Abierto'; t.prioridad=t.prioridad||'Media'; t.origen=t.origen||'Manual';
+  if(useDB){
+    const {data,error}=await db.from('tickets').insert({
+      categoria:t.categoria,descripcion:t.descripcion,prioridad:t.prioridad,
+      estado:t.estado,tecnico:t.tecnico||null,origen:t.origen}).select().single();
+    if(error){ alert('Error al guardar: '+error.message); return null; }
+    tickets.unshift(data); render(); return data;
+  }else{
+    t.id=(tickets[0]?.id||0)+1; t.created_at=new Date().toISOString();
+    tickets.unshift(t); render(); return t;
+  }
+}
+async function updateEstado(id,estado){
+  if(useDB){ await db.from('tickets').update({estado}).eq('id',id); }
+  const tk=tickets.find(x=>x.id==id); if(tk) tk.estado=estado; render();
+}
+
+/* ---------- Render ---------- */
+function fecha(s){ if(!s)return''; const d=new Date(s); return d.toLocaleString('es-GT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function badge(e){ return '<span class="badge b-'+e.replace(/\s/g,'')+'">'+e+'</span>'; }
+function render(){
+  // dashboard stats
+  const c={total:tickets.length,Abierto:0,'En proceso':0,Cerrado:0};
+  tickets.forEach(t=>{ if(c[t.estado]!==undefined)c[t.estado]++; });
+  stTotal.textContent=c.total; stAbierto.textContent=c.Abierto;
+  stProceso.textContent=c['En proceso']; stCerrado.textContent=c.Cerrado;
+  // recent
+  recentBody.innerHTML=tickets.slice(0,8).map(t=>`<tr><td>#${t.id}</td><td>${t.categoria}</td>
+    <td>${(t.descripcion||'').slice(0,45)}</td><td>${badge(t.estado)}</td><td>${t.origen}</td><td class="mini">${fecha(t.created_at)}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="mini">Sin tickets todavía.</td></tr>';
+  // category distribution
+  const dist={}; tickets.forEach(t=>dist[t.categoria]=(dist[t.categoria]||0)+1);
+  const max=Math.max(1,...Object.values(dist));
+  catDist.innerHTML=Object.keys(dist).length? Object.entries(dist).map(([k,v])=>`
+    <div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px">
+      <div style="width:150px">${k}</div>
+      <div style="flex:1;background:#eee;border-radius:6px;overflow:hidden"><div style="width:${v/max*100}%;background:var(--morado2);height:14px"></div></div>
+      <div style="width:24px;text-align:right">${v}</div></div>`).join('') : '<p class="mini">Sin datos.</p>';
+  renderTickets();
+}
+function renderTickets(){
+  const fe=fEstado.value, fc=fCat.value;
+  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc));
+  ticketsBody.innerHTML=rows.map(t=>`<tr>
+    <td>#${t.id}</td><td>${t.categoria}</td><td>${(t.descripcion||'').slice(0,50)}</td>
+    <td class="pri-${t.prioridad}">${t.prioridad}</td><td>${t.tecnico||'<span class="mini">Sin asignar</span>'}</td>
+    <td>${badge(t.estado)}</td><td>${t.origen}</td><td class="mini">${fecha(t.created_at)}</td>
+    <td><select onchange="updateEstado(${t.id},this.value)" style="width:auto;padding:3px 6px;font-size:11px">
+      <option ${t.estado==='Abierto'?'selected':''}>Abierto</option>
+      <option ${t.estado==='En proceso'?'selected':''}>En proceso</option>
+      <option ${t.estado==='Cerrado'?'selected':''}>Cerrado</option></select></td></tr>`).join('')
+    || '<tr><td colspan="9" class="mini">No hay tickets con ese filtro.</td></tr>';
+}
+function crearManual(){
+  const desc=nDesc.value.trim();
+  if(!desc){ nMsg.textContent='Escriba una descripción.'; return; }
+  createTicket({categoria:nCat.value,prioridad:nPri.value,descripcion:desc,tecnico:nTec.value.trim(),origen:'Manual'});
+  nDesc.value=''; nTec.value=''; nMsg.textContent='✅ Ticket registrado.';
+  setTimeout(()=>nMsg.textContent='',2500);
+}
+
+/* ---------- Base de conocimientos ---------- */
+const KB=[
+ {c:'Red o internet',s:'Verifique el cable de red o el Wi-Fi y reinicie el router/switch del área.'},
+ {c:'Impresora',s:'Revise encendido, papel y tóner; cancele la cola de impresión y reintente.'},
+ {c:'Acceso a sistemas',s:'Confirme usuario y contraseña; si la cuenta está bloqueada, solicite restablecerla.'},
+ {c:'Falla de equipo',s:'Reinicie el equipo y verifique las conexiones de energía.'},
+ {c:'Software',s:'Cierre y vuelva a abrir el programa; anote el mensaje de error si aparece.'},
+ {c:'Correo electrónico',s:'Revise conexión, carpeta de spam y la dirección del destinatario.'},
+];
+function renderKB(){
+  kbList.innerHTML=KB.map(k=>`<div style="border:1px solid var(--borde);border-left:4px solid var(--morado);border-radius:8px;padding:10px;margin-bottom:8px">
+    <b style="color:var(--morado)">${k.c}</b><br><span style="font-size:13px">${k.s}</span></div>`).join('');
+}
+
+/* ---------- Chatbot ---------- */
+const INTENTS=[
+ {k:['red','internet','wifi','conexion','conexión'],cat:'Red o internet'},
+ {k:['impresora','imprimir','toner','tóner','papel'],cat:'Impresora'},
+ {k:['acceso','contraseña','contrasena','usuario','clave','bloqueado','entrar'],cat:'Acceso a sistemas'},
+ {k:['computadora','equipo','pc','enciende','lenta','lento','pantalla'],cat:'Falla de equipo'},
+ {k:['software','programa','aplicacion','aplicación','office','excel','word','error'],cat:'Software'},
+ {k:['correo','email','outlook'],cat:'Correo electrónico'},
+];
+let cPend=null;
+function toggleChat(){ const b=document.getElementById('cbox'); b.style.display=b.style.display==='flex'?'none':'flex'; }
+function cAdd(t,who){ const d=document.createElement('div'); d.className='cm '+who; d.textContent=t;
+  cmsgs.appendChild(d); cmsgs.scrollTop=cmsgs.scrollHeight; }
+function cSend(){ const i=document.getElementById('ctxt'); const t=i.value.trim(); if(!t)return;
+  cAdd(t,'user'); i.value=''; setTimeout(()=>cReply(t),350); }
+async function cReply(txt){
+  const t=txt.toLowerCase();
+  if(cPend){
+    if(/(si|sí|resuelto|ya|funciona|gracias)/.test(t)){ cAdd('¡Me alegra ayudar! ¿Algo más?','bot'); cPend=null; return; }
+    if(/(no|sigue|persiste|nada|aun|aún)/.test(t)){
+      const tk=await createTicket({categoria:cPend.cat,descripcion:cPend.desc,prioridad:'Media',estado:'Abierto',origen:'Chatbot'});
+      if(tk) cAdd(`He registrado su ticket #${tk.id} en la categoría "${cPend.cat}". Un técnico le dará seguimiento. Puede verlo en el módulo de Tickets.`,'bot');
+      cPend=null; return; }
+  }
+  if(/(hola|buenos|buenas)/.test(t)){ cAdd('¡Hola! Cuénteme su problema (red, impresora, acceso, equipo, software o correo).','bot'); return; }
+  const it=INTENTS.find(x=>x.k.some(w=>t.includes(w)));
+  if(it){
+    const kb=KB.find(k=>k.c===it.cat);
+    cAdd(`Parece un problema de "${it.cat}". ${kb?kb.s:''}`,'bot');
+    setTimeout(()=>{ cAdd('¿Se resolvió? (responda "sí" o "no")','bot'); cPend={cat:it.cat,desc:txt}; },500);
+  }else{
+    cAdd('No estoy seguro de entender. Intente con: red, impresora, acceso, equipo, software o correo.','bot');
+  }
+}
+
+/* ---------- Boot ---------- */
+function fillSelects(){
+  nCat.innerHTML=CATS.map(c=>`<option>${c}</option>`).join('');
+  fCat.innerHTML='<option value="">Todas</option>'+CATS.map(c=>`<option>${c}</option>`).join('');
+  cfgCats.innerHTML=CATS.map(c=>`<span class="badge b-Abierto" style="margin:3px">${c}</span>`).join('');
+  document.getElementById('cquick').innerHTML=['Problemas de red','La impresora no responde','No tengo acceso']
+    .map(q=>`<button onclick="document.getElementById('ctxt').value='${q}';cSend()">${q}</button>`).join('');
+}
+function boot(){ initDB(); fillSelects(); renderKB(); loadTickets(); }
+document.getElementById('ctxt').addEventListener('keydown',e=>{ if(e.key==='Enter')cSend(); });
+document.getElementById('lpass').addEventListener('keydown',e=>{ if(e.key==='Enter')login(); });
+cAdd('¡Hola! 👋 Soy el asistente de soporte del IGSS Consultorio Chiquimula. ¿Cuál es su problema?','bot');
+</script>
+</body>
+</html>
