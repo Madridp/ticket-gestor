@@ -70,3 +70,25 @@ Ese enlace es el que adjuntas en tu tesis.
 
 ## Evidencia para la Dra. Esquivel
 Con el sistema en línea puedes capturar: la pantalla de login, el dashboard, el listado de tickets, y el chatbot creando un ticket. Esas capturas sirven para el Anexo 2 y para la figura del chatbot.
+
+---
+
+## Activar la IA del chatbot (opcional pero recomendado)
+
+El chatbot funciona de dos formas:
+- **Sin IA:** usa la base de conocimientos por reglas (funciona siempre, incluso local).
+- **Con IA (Gemini):** responde de forma natural cualquier pregunta, apoyándose en la base de conocimientos. Si la IA falla, vuelve automáticamente a las reglas.
+
+Para activar la IA:
+
+1. Entra a **https://aistudio.google.com/apikey** con tu cuenta de Google y crea una **API key** (Gemini tiene plan gratuito).
+2. En Vercel, abre tu proyecto > **Settings** > **Environment Variables**.
+3. Agrega una variable:
+   - **Name:** `GEMINI_API_KEY`
+   - **Value:** (pega tu API key)
+   - Aplícala a *Production* (y *Preview* si quieres).
+4. Ve a **Deployments** > menú del último despliegue > **Redeploy** (o haz un nuevo push).
+
+**Importante:** sube al repositorio la carpeta **`api/`** (con `api/chat.js`), no solo el `index.html`. Vercel la convierte automáticamente en la función de servidor que llama a la IA. La API key queda solo en el servidor, nunca en el navegador.
+
+Si no configuras la key, no pasa nada: el chatbot sigue funcionando con la base de conocimientos.
