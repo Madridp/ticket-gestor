@@ -63,8 +63,8 @@
   .mini{font-size:11px;color:#aaa}
   .config-warn{background:#fff3cd;border:1px solid #ffe08a;color:#7a5c00;padding:12px 14px;border-radius:8px;font-size:13px;margin-bottom:16px}
   /* Chatbot */
-  #cbtn{position:fixed;bottom:24px;right:24px;width:58px;height:58px;border-radius:50%;background:var(--morado);color:#fff;border:none;font-size:26px;cursor:pointer;box-shadow:0 8px 24px rgba(60,20,90,.4);z-index:50}
-  #cbox{position:fixed;bottom:92px;right:24px;width:340px;height:460px;background:#fff;border-radius:16px;box-shadow:0 16px 46px rgba(60,20,90,.3);display:none;flex-direction:column;overflow:hidden;z-index:50}
+  #cbtn{position:fixed;bottom:24px;right:24px;width:58px;height:58px;border-radius:50%;background:var(--morado);color:#fff;border:none;font-size:26px;cursor:pointer;box-shadow:0 8px 24px rgba(60,20,90,.4);z-index:110}
+  #cbox{position:fixed;bottom:92px;right:24px;width:340px;height:460px;background:#fff;border-radius:16px;box-shadow:0 16px 46px rgba(60,20,90,.3);display:none;flex-direction:column;overflow:hidden;z-index:110}
   #cbox .ch{background:linear-gradient(120deg,var(--morado),var(--morado2));color:#fff;padding:12px 16px;font-size:14px}
   #cbox .ch small{display:block;opacity:.85;font-size:11px}
   #cmsgs{flex:1;overflow-y:auto;padding:12px;background:var(--gris);display:flex;flex-direction:column;gap:8px}
@@ -1012,7 +1012,44 @@ function cAdd(t,who){ const d=document.createElement('div'); d.className='cm '+w
 function setQuick(items){ document.getElementById('cquick').innerHTML=items.map(q=>`<button data-q="${q.replace(/"/g,'&quot;')}" onclick="quickSend(this.dataset.q)">${q}</button>`).join(''); }
 function quickSend(t){ document.getElementById('ctxt').value=t; cSend(); }
 function cSend(){ const i=document.getElementById('ctxt'); const t=i.value.trim(); if(!t)return;
-  cAdd(t,'user'); i.value=''; setTimeout(()=>cReply(t),350); }
+  evalStart(t); cAdd(t,'user'); i.value=''; setTimeout(()=>cReply(t),350); }
+
+/* ---------- Registro para la evaluación (prueba piloto) ----------
+   Cada consulta al chatbot se registra con su resultado:
+   resuelto_chatbot | ticket | sin_resolver | sin_confirmar, la vía (ia/reglas) y los segundos transcurridos. */
+let evalC=null, fbPending=false;
+function evalStart(txt){ if(!evalC) evalC={inicio:Date.now(), texto:txt, via:'reglas'}; }
+async function evalLog(resultado, ticketId, categoria){
+  if(!evalC) return;
+  if(!categoria){ const kb=bestOf(evalC.texto,KB); categoria=kb.s>=1.3?kb.e.cat:'Otro'; }
+  const rec={consulta:String(evalC.texto).slice(0,500), resultado, via:evalC.via||'reglas',
+             categoria:categoria||null, ticket_id:ticketId||null, segundos:Math.round((Date.now()-evalC.inicio)/1000)};
+  evalC=null;
+  if(useDB){ try{ await db.from('evaluacion_chat').insert(rec); }catch(e){} }
+}
+function askFeedback(){
+  fbPending=true;
+  setTimeout(()=>{ cAdd('¿Se resolvió su problema con esta información?','bot'); setQuick(['✅ Sí, se resolvió','🎫 No se resolvió']); },350);
+}
+function esSaludo(nt){ return /^(hola|buenos|buenas|saludos|gracias|adios|chao|ok|okay)\b/.test(nt) && nt.split(' ').length<=4; }
+async function handleFeedback(txt){
+  const nt=cstrip(txt);
+  if(/\b(no|registrar|ticket|persiste|sigue|nada)\b/.test(nt)){
+    fbPending=false;
+    const kb=bestOf(evalC?evalC.texto:txt,KB); const cat=kb.s>=1.3?kb.e.cat:'Otro';
+    const tk=await createTicket({categoria:cat,descripcion:(evalC?evalC.texto:txt),prioridad:'Media',estado:'Abierto',origen:'Chatbot'});
+    await evalLog('ticket', tk&&tk.id, cat);
+    cAdd(`Entendido. He registrado su ticket${tk?' #'+tk.id:''} en la categoría "${cat}". Un técnico le dará seguimiento.`,'bot');
+    setQuick(DEFAULT_QUICK); return true;
+  }
+  if(/\b(si|resuelto|resolvio|soluciono|solucionado|funciono|listo|perfecto|ya quedo)\b/.test(nt)){
+    fbPending=false; await evalLog('resuelto_chatbot', null, null);
+    cAdd('¡Me alegra haberle ayudado! 😊 ¿Puedo ayudarle con algo más?','bot'); setQuick(DEFAULT_QUICK); return true;
+  }
+  // el usuario sigue dando detalles: continúa la misma consulta
+  fbPending=false;
+  return false;
+}
 function findHit(txt){ const r=bestOf(txt,KB); return r.s>=1.3?r.e:null; }
 function showStep(){
   const steps=flow.hit.p, n=flow.i, last=(n+1>=steps.length);
@@ -1034,22 +1071,29 @@ function getContext(txt){
 }
 function cTyping(){ const d=document.createElement('div'); d.className='cm bot'; d.textContent='escribiendo\u2026'; d.style.opacity='0.6'; cmsgs.appendChild(d); cmsgs.scrollTop=cmsgs.scrollHeight; return d; }
 async function cReply(txt){
+  if(fbPending){ if(await handleFeedback(txt)) return; }
+  if(esSaludo(cstrip(txt))) evalC=null;   // saludos y despedidas no cuentan como consultas
   chatHistory.push({role:'user',text:txt});
-  if(aiMode!==false){
+  if(aiMode!==false && !flow){
     const tp=cTyping();
     try{
       const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:chatHistory.slice(-10),context:getContext(txt)})});
       const data=await r.json(); if(tp&&tp.remove) tp.remove();
       if(data && data.reply){
-        aiMode=true; let reply=data.reply;
+        aiMode=true; let reply=data.reply; if(evalC) evalC.via='ia';
         const m=reply.match(/REGISTRAR_TICKET:\s*([^|\n]+)\|([^\n]+)/i);
+        chatHistory.push({role:'model',text:data.reply});
         if(m){ reply=reply.replace(m[0],'').trim();
           if(reply) cAdd(reply,'bot');
-          const tk=await createTicket({categoria:(m[1]||'Otro').trim(),descripcion:(m[2]||txt).trim(),prioridad:'Media',estado:'Abierto',origen:'Chatbot'});
-          cAdd('He registrado su ticket'+(tk?' #'+tk.id:'')+'. Un tecnico le dara seguimiento; puede verlo en el modulo de Tickets.','bot');
-        } else cAdd(reply,'bot');
-        chatHistory.push({role:'model',text:data.reply});
-        setQuick(DEFAULT_QUICK); return;
+          const cat=(m[1]||'Otro').trim();
+          const tk=await createTicket({categoria:cat,descripcion:(m[2]||txt).trim(),prioridad:'Media',estado:'Abierto',origen:'Chatbot'});
+          await evalLog('ticket', tk&&tk.id, cat);
+          cAdd('He registrado su ticket'+(tk?' #'+tk.id:'')+'. Un técnico le dará seguimiento; puede verlo en el módulo de Tickets.','bot');
+          setQuick(DEFAULT_QUICK); return;
+        }
+        cAdd(reply,'bot');
+        if(evalC && !/\?\s*$/.test(reply.trim())) askFeedback(); else setQuick(DEFAULT_QUICK);
+        return;
       }
       aiMode=false;
     }catch(e){ if(tp&&tp.remove) tp.remove(); aiMode=false; }
@@ -1059,8 +1103,8 @@ async function cReply(txt){
 async function ruleReply(txt){
   const nt=cstrip(txt);
   if(ticketOffer){
-    if(/\b(si|registrar|ticket|dale|hazlo|claro|adelante)\b/.test(nt)){ const d=ticketOffer; ticketOffer=null; const tk=await createTicket({categoria:'Otro',descripcion:d,prioridad:'Media',estado:'Abierto',origen:'Chatbot'}); cAdd(`He registrado su ticket${tk?' #'+tk.id:''}. Un técnico revisará su caso y le dará seguimiento; puede verlo en el módulo de Tickets.`,'bot'); setQuick(DEFAULT_QUICK); return; }
-    if(/\b(no|gracias|luego|despues|ahorita no)\b/.test(nt)){ ticketOffer=null; cAdd('De acuerdo. Si necesita algo más, aquí estoy. 👋','bot'); setQuick(DEFAULT_QUICK); return; }
+    if(/\b(si|registrar|ticket|dale|hazlo|claro|adelante)\b/.test(nt)){ const d=ticketOffer; ticketOffer=null; const tk=await createTicket({categoria:'Otro',descripcion:d,prioridad:'Media',estado:'Abierto',origen:'Chatbot'}); await evalLog('ticket', tk&&tk.id, 'Otro'); cAdd(`He registrado su ticket${tk?' #'+tk.id:''}. Un técnico revisará su caso y le dará seguimiento; puede verlo en el módulo de Tickets.`,'bot'); setQuick(DEFAULT_QUICK); return; }
+    if(/\b(no|gracias|luego|despues|ahorita no)\b/.test(nt)){ ticketOffer=null; await evalLog('sin_resolver', null, null); cAdd('De acuerdo. Si necesita algo más, aquí estoy. 👋','bot'); setQuick(DEFAULT_QUICK); return; }
     ticketOffer=null;
   }
   const yes=/\b(si|resuelto|se resolvio|resolvio|soluciono|solucionado|funciono|funciona|listo|perfecto|ya quedo)\b/;
@@ -1068,11 +1112,12 @@ async function ruleReply(txt){
   if(flow){
     const kb2=bestOf(txt,KB);
     if(kb2.s>=2.6 && kb2.e!==flow.hit){ startFlow(kb2.e,txt); return; }
-    if(yes.test(nt) && !nextRe.test(nt)){ cAdd('¡Me alegra haberle ayudado! 😊 ¿Puedo ayudarle con algo más?','bot'); flow=null; setQuick(DEFAULT_QUICK); return; }
+    if(yes.test(nt) && !nextRe.test(nt)){ await evalLog('resuelto_chatbot', null, flow.hit.cat); cAdd('¡Me alegra haberle ayudado! 😊 ¿Puedo ayudarle con algo más?','bot'); flow=null; setQuick(DEFAULT_QUICK); return; }
     if(nextRe.test(nt)){
       flow.i++;
       if(flow.i < flow.hit.p.length){ showStep(); return; }
       const tk=await createTicket({categoria:flow.hit.cat,descripcion:flow.desc,prioridad:'Media',estado:'Abierto',origen:'Chatbot'});
+      await evalLog('ticket', tk&&tk.id, flow.hit.cat);
       cAdd(`Intentamos todos los pasos y el problema continúa. He registrado su ticket${tk?' #'+tk.id:''} en la categoría "${flow.hit.cat}". Un técnico le dará seguimiento; puede verlo en el módulo de Tickets.`,'bot');
       flow=null; setQuick(DEFAULT_QUICK); return;
     }
@@ -1084,7 +1129,7 @@ async function ruleReply(txt){
   if(/\b(gracias|adios|chao)\b/.test(nt)){ cAdd('¡Con gusto! Estoy aquí cuando lo necesite. 👋','bot'); return; }
   const kb=bestOf(txt,KB), fq=bestOf(txt,FAQ);
   if(kb.s>=1.3 && kb.s>=fq.s){ startFlow(kb.e,txt); return; }
-  if(fq.s>=1.3){ cAdd(fq.e.a,'bot'); return; }
+  if(fq.s>=1.3){ cAdd(fq.e.a,'bot'); askFeedback(); return; }
   ticketOffer=txt;
   cAdd('No encontré una solución exacta para eso. Puede describirlo con otras palabras, o ¿desea que registre un ticket para que un técnico le ayude?','bot');
   setQuick(['🎫 Sí, registrar ticket','No, gracias']);
@@ -1097,9 +1142,11 @@ function fillSelects(){
   cfgCats.innerHTML=CATS.map(c=>`<span class="badge b-Abierto" style="margin:3px">${c}</span>`).join('');
   setQuick(DEFAULT_QUICK);
 }
-function boot(){ initDB(); fillSelects(); renderKB(); loadUsuarios(); loadTickets(); }
+function boot(){ if(!db) initDB(); fillSelects(); renderKB(); loadUsuarios(); loadTickets(); }
 document.getElementById('ctxt').addEventListener('keydown',e=>{ if(e.key==='Enter')cSend(); });
 document.getElementById('lpass').addEventListener('keydown',e=>{ if(e.key==='Enter')login(); });
+// El chatbot funciona desde la pantalla de inicio: el personal de salud no necesita usuario para reportar
+initDB(); setQuick(DEFAULT_QUICK);
 cAdd('¡Hola! 👋 Soy el asistente virtual de soporte técnico del IGSS Consultorio Chiquimula. Cuento con más de 100 soluciones. Cuénteme su problema (internet, impresora, correo, acceso, equipo, software, teléfono, seguridad, etc.).','bot');
 </script>
 </body>

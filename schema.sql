@@ -82,5 +82,24 @@ from (values
 ) as v(nombre, correo, rol)
 where not exists (select 1 from usuarios u where u.correo = v.correo);
 
+-- ============================================================
+-- Registro de la evaluación (prueba piloto): una fila por consulta al chatbot
+-- resultado: resuelto_chatbot | ticket | sin_resolver
+-- ============================================================
+create table if not exists evaluacion_chat (
+  id          bigint generated always as identity primary key,
+  created_at  timestamptz not null default now(),
+  consulta    text,
+  resultado   text,
+  via         text,          -- 'ia' o 'reglas'
+  categoria   text,
+  ticket_id   bigint,
+  segundos    integer        -- tiempo desde la consulta hasta el resultado
+);
+alter table evaluacion_chat enable row level security;
+drop policy if exists "acceso_demo_evaluacion" on evaluacion_chat;
+create policy "acceso_demo_evaluacion" on evaluacion_chat
+  for all to anon using (true) with check (true);
+
 -- Refresca la caché de la API para que reconozca las columnas nuevas de inmediato
 notify pgrst, 'reload schema';
