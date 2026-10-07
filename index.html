@@ -138,6 +138,7 @@
           <div class="stat abierto"><div class="n" id="stAbierto">0</div><div class="l">Abiertos</div></div>
           <div class="stat proceso"><div class="n" id="stProceso">0</div><div class="l">En proceso</div></div>
           <div class="stat cerrado"><div class="n" id="stCerrado">0</div><div class="l">Cerrados</div></div>
+          <div class="stat"><div class="n" id="stTiempo">—</div><div class="l">Tiempo prom. resolución</div></div>
         </div>
         <div class="panel">
           <h3>Tickets recientes</h3>
@@ -147,6 +148,10 @@
         <div class="panel">
           <h3>Distribución por categoría</h3>
           <div id="catDist"></div>
+        </div>
+        <div class="panel">
+          <h3>Tickets por técnico</h3>
+          <div id="tecDist"></div>
         </div>
       </section>
 
@@ -163,7 +168,9 @@
             <select id="fCat" onchange="renderTickets()"><option value="">Todas</option></select>
             <label class="mini">Técnico:</label>
             <select id="fTec" onchange="renderTickets()"><option value="">Todos</option></select>
+            <input id="fBuscar" oninput="renderTickets()" placeholder="🔍 Buscar..." style="width:auto">
             <button class="btn sec" onclick="loadTickets()">🔄 Actualizar</button>
+            <button class="btn sec" onclick="exportarCSV()">⬇ Exportar</button>
           </div>
           <table><thead><tr><th>ID</th><th>Categoría</th><th>Descripción</th><th>Prioridad</th><th>Técnico asignado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Acción</th></tr></thead>
           <tbody id="ticketsBody"></tbody></table>
@@ -178,8 +185,15 @@
             <div><label class="mini">Categoría</label><select id="nCat"></select></div>
             <div><label class="mini">Prioridad</label><select id="nPri"><option>Baja</option><option selected>Media</option><option>Alta</option></select></div>
           </div>
-          <div style="margin-bottom:12px"><label class="mini">Descripción del problema</label>
+          <div class="row">
+            <div><label class="mini">Nombre de quien reporta</label><input id="nSolic" placeholder="Ej. Dra. López"></div>
+            <div><label class="mini">Área / unidad</label><input id="nArea" placeholder="Ej. Consulta externa"></div>
+          </div>
+          <div style="margin:12px 0"><label class="mini">Descripción del problema</label>
             <textarea id="nDesc" rows="4" placeholder="Describa el incidente..."></textarea></div>
+          <div style="margin-bottom:12px"><label class="mini">Fotos del problema (opcional)</label>
+            <input type="file" id="nFotos" accept="image/*" multiple onchange="addNewFotos(this.files)">
+            <div class="thumbs" id="nThumbs"></div></div>
           <div class="row">
             <div><label class="mini">Técnico asignado (opcional)</label><select id="nTec"><option value="">Sin asignar</option></select></div>
             <div style="display:flex;align-items:flex-end"><button class="btn" onclick="crearManual()">Guardar ticket</button></div>
@@ -279,17 +293,40 @@ function initDB(){
 }
 
 /* ---------- Login (demo) ---------- */
-function login(){
+let currentUser=null;
+async function findUsuario(correo){
+  correo=(correo||'').toLowerCase();
+  if(!db) initDB();
+  if(useDB){
+    try{
+      const {data}=await db.from('usuarios').select('*').ilike('correo',correo).limit(1);
+      if(data && data.length) return data[0];
+    }catch(e){/* la tabla puede no existir aún */}
+  }
+  return USUARIOS_DEFAULT.find(u=>u.correo.toLowerCase()===correo)||null;
+}
+async function login(){
   const u=document.getElementById('luser').value.trim();
   const p=document.getElementById('lpass').value;
-  if(u==='admin@igss' && p==='igss2025'){
-    document.getElementById('login').style.display='none';
-    document.getElementById('app').style.display='grid';
-    document.getElementById('who').textContent=u;
-    boot();
-  }else{
-    document.getElementById('loginErr').textContent='Usuario o contraseña incorrectos.';
-  }
+  const err=document.getElementById('loginErr');
+  if(p!=='igss2025'){ err.textContent='Usuario o contraseña incorrectos.'; return; }
+  err.textContent='Verificando...';
+  const user=await findUsuario(u);
+  if(!user){ err.textContent='Ese correo no está registrado como usuario del sistema.'; return; }
+  if(user.activo===false){ err.textContent='Este usuario está inactivo. Contacte al administrador.'; return; }
+  currentUser=user; err.textContent='';
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='grid';
+  document.getElementById('who').textContent=user.nombre+' · '+user.rol;
+  applyRole();
+  boot();
+}
+function applyRole(){
+  const isAdmin = currentUser && currentUser.rol==='Administrador';
+  // Técnicos no administran usuarios ni la configuración del sistema
+  document.querySelectorAll('#nav a[data-s="usuarios"],#nav a[data-s="config"]').forEach(a=>{
+    a.style.display = isAdmin ? '' : 'none';
+  });
 }
 function logout(){ location.reload(); }
 
@@ -312,26 +349,44 @@ async function loadTickets(){
   }
   render();
 }
+/* Quién realiza la acción (para la trazabilidad) */
+function actor(){ return (currentUser && currentUser.nombre) || 'Sistema'; }
+/* Agrega un evento al historial del ticket y devuelve el JSON actualizado */
+function histAdd(tk, evento, por){
+  let h=[]; try{ h=tk.historial?JSON.parse(tk.historial):[]; }catch(e){}
+  h.push({t:new Date().toISOString(), e:evento, por:por||actor()});
+  return JSON.stringify(h);
+}
 async function createTicket(t){
   t.estado=t.estado||'Abierto'; t.prioridad=t.prioridad||'Media'; t.origen=t.origen||'Manual';
+  const quien = t.origen==='Chatbot' ? 'Chatbot' : actor();
+  const hist=[{t:new Date().toISOString(), e:'Ticket creado ('+t.origen+')', por:quien}];
+  if(t.tecnico) hist.push({t:new Date().toISOString(), e:'Asignado a '+t.tecnico, por:quien});
+  const rec={
+    categoria:t.categoria, descripcion:t.descripcion, prioridad:t.prioridad,
+    estado:t.estado, tecnico:t.tecnico||null, origen:t.origen,
+    solicitante:t.solicitante||null, area:t.area||null,
+    fotos: (t.fotos&&t.fotos.length)? JSON.stringify(t.fotos): null,
+    historial: JSON.stringify(hist)
+  };
   if(useDB){
-    const {data,error}=await db.from('tickets').insert({
-      categoria:t.categoria,descripcion:t.descripcion,prioridad:t.prioridad,
-      estado:t.estado,tecnico:t.tecnico||null,origen:t.origen}).select().single();
+    const {data,error}=await db.from('tickets').insert(rec).select().single();
     if(error){ alert('Error al guardar: '+error.message); return null; }
     tickets.unshift(data); render(); return data;
   }else{
-    t.id=(tickets[0]?.id||0)+1; t.created_at=new Date().toISOString();
+    Object.assign(t,rec); t.id=(tickets[0]?.id||0)+1; t.created_at=new Date().toISOString();
     tickets.unshift(t); render(); return t;
   }
 }
 async function updateEstado(id,estado){
-  if(useDB){ await db.from('tickets').update({estado}).eq('id',id); }
-  const tk=tickets.find(x=>x.id==id); if(tk) tk.estado=estado; render();
+  const tk=tickets.find(x=>x.id==id); if(!tk) return;
+  const hist=histAdd(tk,'Estado cambiado a '+estado);
+  await updateTicketFields(id,{estado, historial:hist});
 }
 async function updateTecnico(id,tecnico){
-  if(useDB){ try{ await db.from('tickets').update({tecnico:tecnico||null}).eq('id',id); }catch(e){} }
-  const tk=tickets.find(x=>x.id==id); if(tk) tk.tecnico=tecnico||null; render();
+  const tk=tickets.find(x=>x.id==id); if(!tk) return;
+  const hist=histAdd(tk, tecnico? ('Asignado a '+tecnico):'Técnico sin asignar');
+  await updateTicketFields(id,{tecnico:tecnico||null, historial:hist});
 }
 async function updateTicketFields(id,fields){
   if(useDB){ try{ const {error}=await db.from('tickets').update(fields).eq('id',id); if(error){ alert('Error al guardar: '+error.message); } }catch(e){ alert('Error: '+e.message); } }
@@ -349,17 +404,24 @@ function openViewModal(id){
   const t=tickets.find(x=>x.id==id); if(!t) return;
   document.getElementById('modalTitle').textContent='Detalle del ticket #'+id;
   let fotos=[]; try{ fotos=t.solucion_fotos?JSON.parse(t.solucion_fotos):[]; }catch(e){}
+  let repFotos=[]; try{ repFotos=t.fotos?JSON.parse(t.fotos):[]; }catch(e){}
+  let hist=[]; try{ hist=t.historial?JSON.parse(t.historial):[]; }catch(e){}
   document.getElementById('modalBody').innerHTML=`
     <div class="det-row"><b>Estado:</b> ${badge(t.estado)}</div>
     <div class="det-row"><b>Categoría:</b> ${t.categoria} &nbsp;&nbsp; <b>Prioridad:</b> ${t.prioridad}</div>
+    ${(t.solicitante||t.area)?`<div class="det-row"><b>Reportado por:</b> ${t.solicitante||'—'}${t.area?(' · '+t.area):''}</div>`:''}
     <div class="det-row"><b>Técnico asignado:</b> ${t.tecnico||'Sin asignar'}</div>
     <div class="det-row"><b>Origen:</b> ${t.origen} &nbsp;&nbsp; <b>Creado:</b> ${fecha(t.created_at)}</div>
     <div class="det-row"><b>Problema reportado:</b> ${(t.descripcion||'')}</div>
+    ${repFotos.length?`<label>Fotos del problema:</label><div class="thumbs">${repFotos.map(d=>`<a href="${d}" target="_blank"><img src="${d}"></a>`).join('')}</div>`:''}
     ${t.solucion?`<hr style="border:none;border-top:1px solid var(--borde);margin:12px 0">
       <div class="det-row"><b>Solución aplicada:</b> ${t.solucion}</div>
       ${t.cerrado_por?`<div class="det-row"><b>Resuelto por:</b> ${t.cerrado_por} &nbsp;&nbsp; <b>Fecha de cierre:</b> ${fecha(t.cerrado_at)}</div>`:''}
       ${fotos.length?`<label>Evidencia de la solución:</label><div class="thumbs">${fotos.map(d=>`<a href="${d}" target="_blank"><img src="${d}"></a>`).join('')}</div>`:''}`
       :'<div class="mini" style="margin-top:10px;color:#777">Este ticket aún no tiene solución registrada.</div>'}
+    ${hist.length?`<hr style="border:none;border-top:1px solid var(--borde);margin:12px 0">
+      <label>Historial de seguimiento:</label>
+      <div style="font-size:12px">${hist.map(h=>`<div style="margin:4px 0;padding-left:10px;border-left:2px solid var(--morado2)"><b>${fecha(h.t)}</b> — ${h.e}${h.por?(' <span class="mini">('+h.por+')</span>'):''}</div>`).join('')}</div>`:''}
     <div style="margin-top:16px;text-align:right">
       ${t.estado!=='Cerrado'?`<button class="btn" onclick="openCloseModal(${id})">✔ Resolver y cerrar</button> `:''}
       <button class="btn sec" onclick="closeModal()">Cerrar</button>
@@ -370,7 +432,8 @@ function openCloseModal(id){
   const t=tickets.find(x=>x.id==id); if(!t) return;
   closingId=id; closeFotos=[];
   document.getElementById('modalTitle').textContent='Resolver y cerrar ticket #'+id;
-  const tecOpts='<option value="">Sin asignar</option>'+tecnicosActivos().map(u=>`<option ${u.nombre===(t.tecnico||'')?'selected':''}>${u.nombre}</option>`).join('');
+  const quienResuelve = t.tecnico || (currentUser && currentUser.rol==='Técnico' ? currentUser.nombre : '');
+  const tecOpts='<option value="">Sin asignar</option>'+tecnicosActivos().map(u=>`<option ${u.nombre===quienResuelve?'selected':''}>${u.nombre}</option>`).join('');
   document.getElementById('modalBody').innerHTML=`
     <div class="det-row"><b>Categoría:</b> ${t.categoria} &nbsp;&nbsp; <b>Prioridad:</b> ${t.prioridad}</div>
     <div class="det-row"><b>Problema:</b> ${(t.descripcion||'')}</div>
@@ -413,13 +476,46 @@ async function submitClose(){
   const sol=document.getElementById('mSol').value.trim();
   const tec=document.getElementById('mTec').value;
   if(!sol){ document.getElementById('mMsg').textContent='Describa cómo se resolvió el problema antes de cerrar.'; return; }
+  const tk=tickets.find(x=>x.id==closingId)||{};
+  const hist=histAdd(tk,'Ticket resuelto y cerrado'+(tec?(' por '+tec):''), tec||actor());
   await updateTicketFields(closingId,{
     estado:'Cerrado', solucion:sol,
     solucion_fotos: closeFotos.length? JSON.stringify(closeFotos): null,
     cerrado_por: tec||null, cerrado_at: new Date().toISOString(),
-    tecnico: tec||null
+    tecnico: tec||null, historial:hist
   });
   closeModal();
+}
+/* Fotos al CREAR un ticket */
+let newFotos=[];
+function addNewFotos(files){
+  [...files].forEach(f=>{
+    const r=new FileReader();
+    r.onload=e=>{ const img=new Image(); img.onload=()=>{
+      const max=1000, sc=Math.min(1,max/Math.max(img.width,img.height));
+      const c=document.createElement('canvas'); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      newFotos.push(c.toDataURL('image/jpeg',0.7)); renderNewThumbs();
+    }; img.src=e.target.result; };
+    r.readAsDataURL(f);
+  });
+}
+function renderNewThumbs(){
+  const el=document.getElementById('nThumbs'); if(!el) return;
+  el.innerHTML=newFotos.map((d,i)=>`<div style="position:relative"><img src="${d}">
+    <button onclick="newFotos.splice(${i},1);renderNewThumbs()" title="Quitar"
+      style="position:absolute;top:-6px;right:-6px;background:var(--rojo);color:#fff;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:11px;line-height:1">✕</button></div>`).join('');
+}
+/* Exportar a CSV (se abre en Excel) */
+function exportarCSV(){
+  const fe=fEstado.value, fc=fCat.value, ft=(document.getElementById('fTec')?fTec.value:''), q=(document.getElementById('fBuscar')?fBuscar.value.toLowerCase():'');
+  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft)&&(!q||JSON.stringify([t.id,t.categoria,t.descripcion,t.solicitante,t.area,t.tecnico]).toLowerCase().includes(q)));
+  const cab=['ID','Categoría','Descripción','Prioridad','Estado','Técnico','Solicitante','Área','Origen','Creado','Cerrado','Solución'];
+  const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lineas=[cab.join(',')].concat(rows.map(t=>[t.id,t.categoria,t.descripcion,t.prioridad,t.estado,t.tecnico,t.solicitante,t.area,t.origen,fecha(t.created_at),t.cerrado_at?fecha(t.cerrado_at):'',t.solucion].map(esc).join(',')));
+  const blob=new Blob(['﻿'+lineas.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='tickets_igss_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
 }
 
 /* ---------- Usuarios / técnicos ---------- */
@@ -502,12 +598,31 @@ function render(){
       <div style="width:150px">${k}</div>
       <div style="flex:1;background:#eee;border-radius:6px;overflow:hidden"><div style="width:${v/max*100}%;background:var(--morado2);height:14px"></div></div>
       <div style="width:24px;text-align:right">${v}</div></div>`).join('') : '<p class="mini">Sin datos.</p>';
+  // tiempo promedio de resolución
+  const cerr=tickets.filter(t=>t.cerrado_at&&t.created_at);
+  if(cerr.length){
+    const hrs=cerr.reduce((a,t)=>a+(new Date(t.cerrado_at)-new Date(t.created_at))/3.6e6,0)/cerr.length;
+    stTiempo.textContent = hrs<24 ? (hrs<1?Math.round(hrs*60)+' min':hrs.toFixed(1)+' h') : (hrs/24).toFixed(1)+' d';
+  } else stTiempo.textContent='—';
+  // tickets por técnico (abiertos vs cerrados)
+  const td={}; tickets.forEach(t=>{ const n=t.tecnico||'Sin asignar'; td[n]=td[n]||{a:0,c:0}; (t.estado==='Cerrado'?td[n].c++:td[n].a++); });
+  const tmax=Math.max(1,...Object.values(td).map(v=>v.a+v.c));
+  const te=document.getElementById('tecDist');
+  if(te) te.innerHTML=Object.keys(td).length? Object.entries(td).map(([k,v])=>`
+    <div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px">
+      <div style="width:150px">${k}</div>
+      <div style="flex:1;background:#eee;border-radius:6px;overflow:hidden;display:flex">
+        <div style="width:${v.a/tmax*100}%;background:var(--azul);height:14px" title="Activos"></div>
+        <div style="width:${v.c/tmax*100}%;background:var(--verde);height:14px" title="Cerrados"></div></div>
+      <div style="width:80px;text-align:right" class="mini">${v.a} act · ${v.c} cerr</div></div>`).join('') : '<p class="mini">Sin datos.</p>';
   renderUsuarios();
   renderTickets();
 }
 function renderTickets(){
   const fe=fEstado.value, fc=fCat.value, ft=(document.getElementById('fTec')?fTec.value:'');
-  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft));
+  const q=(document.getElementById('fBuscar')?fBuscar.value.toLowerCase().trim():'');
+  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft)
+    &&(!q||JSON.stringify([t.id,t.categoria,t.descripcion,t.solicitante,t.area,t.tecnico]).toLowerCase().includes(q)));
   const optTec=sel=>'<option value="">Sin asignar</option>'+tecnicosActivos().map(u=>`<option ${u.nombre===sel?'selected':''}>${u.nombre}</option>`).join('');
   ticketsBody.innerHTML=rows.map(t=>`<tr>
     <td>#${t.id}</td><td>${t.categoria}</td><td>${(t.descripcion||'').slice(0,50)}</td>
@@ -526,8 +641,10 @@ function renderTickets(){
 function crearManual(){
   const desc=nDesc.value.trim();
   if(!desc){ nMsg.textContent='Escriba una descripción.'; return; }
-  createTicket({categoria:nCat.value,prioridad:nPri.value,descripcion:desc,tecnico:nTec.value.trim(),origen:'Manual'});
-  nDesc.value=''; nTec.value=''; nMsg.textContent='✅ Ticket registrado.';
+  createTicket({categoria:nCat.value,prioridad:nPri.value,descripcion:desc,tecnico:nTec.value.trim(),
+    origen:'Manual', solicitante:nSolic.value.trim(), area:nArea.value.trim(), fotos:newFotos.slice()});
+  nDesc.value=''; nTec.value=''; nSolic.value=''; nArea.value=''; newFotos=[]; renderNewThumbs();
+  nMsg.textContent='✅ Ticket registrado.';
   setTimeout(()=>nMsg.textContent='',2500);
 }
 

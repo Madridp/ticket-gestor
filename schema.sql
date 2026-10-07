@@ -14,6 +14,12 @@ create table if not exists tickets (
   created_at  timestamptz not null default now()
 );
 
+-- Datos de quién reporta y evidencia inicial
+alter table tickets add column if not exists solicitante     text;        -- nombre de quien reporta
+alter table tickets add column if not exists area            text;        -- área o unidad del solicitante
+alter table tickets add column if not exists fotos           text;        -- fotos del problema al reportar (JSON)
+alter table tickets add column if not exists historial       text;        -- seguimiento/trazabilidad del ticket (JSON)
+
 -- Columnas de resolución (cómo quedó resuelto el ticket al cerrarlo)
 alter table tickets add column if not exists solucion       text;        -- descripción de la solución
 alter table tickets add column if not exists solucion_fotos  text;        -- fotos de evidencia (JSON con imágenes)
