@@ -509,7 +509,7 @@ function renderNewThumbs(){
 /* Exportar a CSV (se abre en Excel) */
 function exportarCSV(){
   const fe=fEstado.value, fc=fCat.value, ft=(document.getElementById('fTec')?fTec.value:''), q=(document.getElementById('fBuscar')?fBuscar.value.toLowerCase():'');
-  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft)&&(!q||JSON.stringify([t.id,t.categoria,t.descripcion,t.solicitante,t.area,t.tecnico]).toLowerCase().includes(q)));
+  const rows=visibleTickets().filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft)&&(!q||JSON.stringify([t.id,t.categoria,t.descripcion,t.solicitante,t.area,t.tecnico]).toLowerCase().includes(q)));
   const cab=['ID','Categoría','Descripción','Prioridad','Estado','Técnico','Solicitante','Área','Origen','Creado','Cerrado','Solución'];
   const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const lineas=[cab.join(',')].concat(rows.map(t=>[t.id,t.categoria,t.descripcion,t.prioridad,t.estado,t.tecnico,t.solicitante,t.area,t.origen,fecha(t.created_at),t.cerrado_at?fecha(t.cerrado_at):'',t.solucion].map(esc).join(',')));
@@ -580,18 +580,25 @@ function fillTecnicos(){
 /* ---------- Render ---------- */
 function fecha(s){ if(!s)return''; const d=new Date(s); return d.toLocaleString('es-GT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 function badge(e){ return '<span class="badge b-'+e.replace(/\s/g,'')+'">'+e+'</span>'; }
+/* Tickets visibles según el rol: el técnico solo ve los suyos; el admin, todos */
+function esAdmin(){ return !currentUser || currentUser.rol==='Administrador'; }
+function visibleTickets(){
+  if(esAdmin()) return tickets;
+  return tickets.filter(t=>(t.tecnico||'')===currentUser.nombre);
+}
 function render(){
+  const vis=visibleTickets();
   // dashboard stats
-  const c={total:tickets.length,Abierto:0,'En proceso':0,Cerrado:0};
-  tickets.forEach(t=>{ if(c[t.estado]!==undefined)c[t.estado]++; });
+  const c={total:vis.length,Abierto:0,'En proceso':0,Cerrado:0};
+  vis.forEach(t=>{ if(c[t.estado]!==undefined)c[t.estado]++; });
   stTotal.textContent=c.total; stAbierto.textContent=c.Abierto;
   stProceso.textContent=c['En proceso']; stCerrado.textContent=c.Cerrado;
   // recent
-  recentBody.innerHTML=tickets.slice(0,8).map(t=>`<tr><td>#${t.id}</td><td>${t.categoria}</td>
+  recentBody.innerHTML=vis.slice(0,8).map(t=>`<tr><td>#${t.id}</td><td>${t.categoria}</td>
     <td>${(t.descripcion||'').slice(0,45)}</td><td>${badge(t.estado)}</td><td>${t.origen}</td><td class="mini">${fecha(t.created_at)}</td></tr>`).join('')
     || '<tr><td colspan="6" class="mini">Sin tickets todavía.</td></tr>';
   // category distribution
-  const dist={}; tickets.forEach(t=>dist[t.categoria]=(dist[t.categoria]||0)+1);
+  const dist={}; vis.forEach(t=>dist[t.categoria]=(dist[t.categoria]||0)+1);
   const max=Math.max(1,...Object.values(dist));
   catDist.innerHTML=Object.keys(dist).length? Object.entries(dist).map(([k,v])=>`
     <div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px">
@@ -599,13 +606,13 @@ function render(){
       <div style="flex:1;background:#eee;border-radius:6px;overflow:hidden"><div style="width:${v/max*100}%;background:var(--morado2);height:14px"></div></div>
       <div style="width:24px;text-align:right">${v}</div></div>`).join('') : '<p class="mini">Sin datos.</p>';
   // tiempo promedio de resolución
-  const cerr=tickets.filter(t=>t.cerrado_at&&t.created_at);
+  const cerr=vis.filter(t=>t.cerrado_at&&t.created_at);
   if(cerr.length){
     const hrs=cerr.reduce((a,t)=>a+(new Date(t.cerrado_at)-new Date(t.created_at))/3.6e6,0)/cerr.length;
     stTiempo.textContent = hrs<24 ? (hrs<1?Math.round(hrs*60)+' min':hrs.toFixed(1)+' h') : (hrs/24).toFixed(1)+' d';
   } else stTiempo.textContent='—';
   // tickets por técnico (abiertos vs cerrados)
-  const td={}; tickets.forEach(t=>{ const n=t.tecnico||'Sin asignar'; td[n]=td[n]||{a:0,c:0}; (t.estado==='Cerrado'?td[n].c++:td[n].a++); });
+  const td={}; vis.forEach(t=>{ const n=t.tecnico||'Sin asignar'; td[n]=td[n]||{a:0,c:0}; (t.estado==='Cerrado'?td[n].c++:td[n].a++); });
   const tmax=Math.max(1,...Object.values(td).map(v=>v.a+v.c));
   const te=document.getElementById('tecDist');
   if(te) te.innerHTML=Object.keys(td).length? Object.entries(td).map(([k,v])=>`
@@ -621,7 +628,7 @@ function render(){
 function renderTickets(){
   const fe=fEstado.value, fc=fCat.value, ft=(document.getElementById('fTec')?fTec.value:'');
   const q=(document.getElementById('fBuscar')?fBuscar.value.toLowerCase().trim():'');
-  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft)
+  const rows=visibleTickets().filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft)
     &&(!q||JSON.stringify([t.id,t.categoria,t.descripcion,t.solicitante,t.area,t.tecnico]).toLowerCase().includes(q)));
   const optTec=sel=>'<option value="">Sin asignar</option>'+tecnicosActivos().map(u=>`<option ${u.nombre===sel?'selected':''}>${u.nombre}</option>`).join('');
   ticketsBody.innerHTML=rows.map(t=>`<tr>
