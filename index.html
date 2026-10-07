@@ -149,9 +149,11 @@
             </select>
             <label class="mini">Categoría:</label>
             <select id="fCat" onchange="renderTickets()"><option value="">Todas</option></select>
+            <label class="mini">Técnico:</label>
+            <select id="fTec" onchange="renderTickets()"><option value="">Todos</option></select>
             <button class="btn sec" onclick="loadTickets()">🔄 Actualizar</button>
           </div>
-          <table><thead><tr><th>ID</th><th>Categoría</th><th>Descripción</th><th>Prioridad</th><th>Técnico</th><th>Estado</th><th>Origen</th><th>Fecha</th></tr></thead>
+          <table><thead><tr><th>ID</th><th>Categoría</th><th>Descripción</th><th>Prioridad</th><th>Técnico asignado</th><th>Estado</th><th>Origen</th><th>Fecha</th><th>Acción</th></tr></thead>
           <tbody id="ticketsBody"></tbody></table>
         </div>
       </section>
@@ -167,7 +169,7 @@
           <div style="margin-bottom:12px"><label class="mini">Descripción del problema</label>
             <textarea id="nDesc" rows="4" placeholder="Describa el incidente..."></textarea></div>
           <div class="row">
-            <div><label class="mini">Técnico asignado (opcional)</label><input id="nTec" placeholder="Sin asignar"></div>
+            <div><label class="mini">Técnico asignado (opcional)</label><select id="nTec"><option value="">Sin asignar</option></select></div>
             <div style="display:flex;align-items:flex-end"><button class="btn" onclick="crearManual()">Guardar ticket</button></div>
           </div>
           <div id="nMsg" class="mini"></div>
@@ -185,13 +187,22 @@
       <!-- USUARIOS -->
       <section class="section" id="usuarios">
         <div class="panel">
-          <h3>Usuarios</h3>
-          <table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th></tr></thead>
-          <tbody>
-            <tr><td>Pedro García</td><td>admin@igss</td><td>Administrador</td></tr>
-            <tr><td>Soporte técnico 1</td><td>tecnico1@igss</td><td>Técnico</td></tr>
-            <tr><td>Soporte técnico 2</td><td>tecnico2@igss</td><td>Técnico</td></tr>
-          </tbody></table>
+          <h3>Usuarios del sistema</h3>
+          <p class="mini">Personal que gestiona y atiende los tickets. Los <b>Técnicos</b> reciben y dan seguimiento a los casos; el <b>Administrador</b> gestiona todo el sistema. La columna «Tickets activos» muestra la carga de trabajo de cada técnico.</p>
+          <table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th style="text-align:center">Tickets activos</th><th>Estado</th><th>Acción</th></tr></thead>
+          <tbody id="usuariosBody"></tbody></table>
+        </div>
+        <div class="panel" style="max-width:640px;margin-top:16px">
+          <h3>Agregar usuario / técnico</h3>
+          <div class="row">
+            <div><label class="mini">Nombre completo</label><input id="uNombre" placeholder="Ej. Juan Pérez"></div>
+            <div><label class="mini">Correo</label><input id="uCorreo" placeholder="Ej. tecnico3@igss"></div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div><label class="mini">Rol</label><select id="uRol"><option>Técnico</option><option>Administrador</option></select></div>
+            <div style="display:flex;align-items:flex-end"><button class="btn" onclick="createUsuario()">Agregar usuario</button></div>
+          </div>
+          <div id="uMsg" class="mini" style="margin-top:8px"></div>
         </div>
       </section>
 
@@ -227,6 +238,13 @@ const SUPABASE_ANON_KEY = "sb_publishable_7UyGOJljlasEhVUo4CH2RA_seAp5h-R";
 
 const CATS = ['Red o internet','Impresora','Acceso a sistemas','Falla de equipo','Software','Correo electrónico','Otro'];
 let db = null, useDB = false, tickets = [];
+// Usuarios/técnicos por defecto (respaldo si aún no existe la tabla en la base de datos)
+const USUARIOS_DEFAULT = [
+  {id:1, nombre:'Pedro García',      correo:'admin@igss',    rol:'Administrador', activo:true},
+  {id:2, nombre:'Soporte técnico 1', correo:'tecnico1@igss', rol:'Técnico',       activo:true},
+  {id:3, nombre:'Soporte técnico 2', correo:'tecnico2@igss', rol:'Técnico',       activo:true}
+];
+let usuarios = [];
 
 function initDB(){
   if(SUPABASE_URL && SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith('TU_')){
@@ -289,6 +307,69 @@ async function updateEstado(id,estado){
   if(useDB){ await db.from('tickets').update({estado}).eq('id',id); }
   const tk=tickets.find(x=>x.id==id); if(tk) tk.estado=estado; render();
 }
+async function updateTecnico(id,tecnico){
+  if(useDB){ try{ await db.from('tickets').update({tecnico:tecnico||null}).eq('id',id); }catch(e){} }
+  const tk=tickets.find(x=>x.id==id); if(tk) tk.tecnico=tecnico||null; render();
+}
+
+/* ---------- Usuarios / técnicos ---------- */
+function tecnicosActivos(){ return usuarios.filter(u=>u.activo); }
+async function loadUsuarios(){
+  usuarios = USUARIOS_DEFAULT.map(u=>({...u}));
+  if(useDB){
+    try{
+      const {data,error}=await db.from('usuarios').select('*').order('id',{ascending:true});
+      if(!error && data && data.length) usuarios=data;
+    }catch(e){/* la tabla puede no existir aún: se usa el respaldo */}
+  }
+  renderUsuarios(); fillTecnicos();
+}
+function renderUsuarios(){
+  const body=document.getElementById('usuariosBody'); if(!body) return;
+  body.innerHTML=usuarios.map(u=>{
+    const carga=tickets.filter(t=>t.tecnico===u.nombre && t.estado!=='Cerrado').length;
+    const rolBadge=u.rol==='Administrador'?'b-Alta':'b-Abierto';
+    return `<tr${u.activo?'':' style="opacity:.55"'}>
+      <td>${u.nombre}</td><td>${u.correo}</td>
+      <td><span class="badge ${rolBadge}">${u.rol}</span></td>
+      <td style="text-align:center">${carga}</td>
+      <td>${u.activo?'🟢 Activo':'⚪ Inactivo'}</td>
+      <td><button class="btn sec" style="padding:4px 9px;font-size:11px" onclick="toggleUsuario(${u.id})">${u.activo?'Desactivar':'Activar'}</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="mini">Sin usuarios registrados.</td></tr>';
+}
+async function createUsuario(){
+  const nombre=uNombre.value.trim(), correo=uCorreo.value.trim(), rol=uRol.value;
+  const msg=document.getElementById('uMsg');
+  if(!nombre){ msg.textContent='Escriba el nombre.'; return; }
+  const nuevo={nombre,correo,rol,activo:true};
+  if(useDB){
+    try{
+      const {data,error}=await db.from('usuarios').insert(nuevo).select().single();
+      if(error){ msg.textContent='Error al guardar: '+error.message; return; }
+      usuarios.push(data);
+    }catch(e){ msg.textContent='Error: '+e.message; return; }
+  }else{
+    nuevo.id=Math.max(0,...usuarios.map(u=>u.id))+1; usuarios.push(nuevo);
+  }
+  uNombre.value=''; uCorreo.value=''; msg.textContent='✅ Usuario agregado.';
+  setTimeout(()=>msg.textContent='',2500);
+  renderUsuarios(); fillTecnicos();
+}
+async function toggleUsuario(id){
+  const u=usuarios.find(x=>x.id==id); if(!u) return;
+  const nuevo=!u.activo;
+  if(useDB){ try{ await db.from('usuarios').update({activo:nuevo}).eq('id',id); }catch(e){} }
+  u.activo=nuevo; renderUsuarios(); fillTecnicos();
+}
+function fillTecnicos(){
+  const act=tecnicosActivos();
+  const nt=document.getElementById('nTec');
+  if(nt) nt.innerHTML='<option value="">Sin asignar</option>'+act.map(u=>`<option>${u.nombre}</option>`).join('');
+  const ft=document.getElementById('fTec');
+  if(ft){ const cur=ft.value; ft.innerHTML='<option value="">Todos</option>'+act.map(u=>`<option>${u.nombre}</option>`).join(''); ft.value=cur; }
+  renderTickets();
+}
 
 /* ---------- Render ---------- */
 function fecha(s){ if(!s)return''; const d=new Date(s); return d.toLocaleString('es-GT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
@@ -311,14 +392,17 @@ function render(){
       <div style="width:150px">${k}</div>
       <div style="flex:1;background:#eee;border-radius:6px;overflow:hidden"><div style="width:${v/max*100}%;background:var(--morado2);height:14px"></div></div>
       <div style="width:24px;text-align:right">${v}</div></div>`).join('') : '<p class="mini">Sin datos.</p>';
+  renderUsuarios();
   renderTickets();
 }
 function renderTickets(){
-  const fe=fEstado.value, fc=fCat.value;
-  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc));
+  const fe=fEstado.value, fc=fCat.value, ft=(document.getElementById('fTec')?fTec.value:'');
+  const rows=tickets.filter(t=>(!fe||t.estado===fe)&&(!fc||t.categoria===fc)&&(!ft||(t.tecnico||'')===ft));
+  const optTec=sel=>'<option value="">Sin asignar</option>'+tecnicosActivos().map(u=>`<option ${u.nombre===sel?'selected':''}>${u.nombre}</option>`).join('');
   ticketsBody.innerHTML=rows.map(t=>`<tr>
     <td>#${t.id}</td><td>${t.categoria}</td><td>${(t.descripcion||'').slice(0,50)}</td>
-    <td class="pri-${t.prioridad}">${t.prioridad}</td><td>${t.tecnico||'<span class="mini">Sin asignar</span>'}</td>
+    <td class="pri-${t.prioridad}">${t.prioridad}</td>
+    <td><select onchange="updateTecnico(${t.id},this.value)" style="width:auto;padding:3px 6px;font-size:11px">${optTec(t.tecnico||'')}</select></td>
     <td>${badge(t.estado)}</td><td>${t.origen}</td><td class="mini">${fecha(t.created_at)}</td>
     <td><select onchange="updateEstado(${t.id},this.value)" style="width:auto;padding:3px 6px;font-size:11px">
       <option ${t.estado==='Abierto'?'selected':''}>Abierto</option>
@@ -755,7 +839,7 @@ function fillSelects(){
   cfgCats.innerHTML=CATS.map(c=>`<span class="badge b-Abierto" style="margin:3px">${c}</span>`).join('');
   setQuick(DEFAULT_QUICK);
 }
-function boot(){ initDB(); fillSelects(); renderKB(); loadTickets(); }
+function boot(){ initDB(); fillSelects(); renderKB(); loadUsuarios(); loadTickets(); }
 document.getElementById('ctxt').addEventListener('keydown',e=>{ if(e.key==='Enter')cSend(); });
 document.getElementById('lpass').addEventListener('keydown',e=>{ if(e.key==='Enter')login(); });
 cAdd('¡Hola! 👋 Soy el asistente virtual de soporte técnico del IGSS Consultorio Chiquimula. Cuento con más de 100 soluciones. Cuénteme su problema (internet, impresora, correo, acceso, equipo, software, teléfono, seguridad, etc.).','bot');

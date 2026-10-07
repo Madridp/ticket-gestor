@@ -4,8 +4,10 @@ Sistema web de gestión de incidentes para el IGSS Consultorio Chiquimula, con *
 
 Archivos:
 - `index.html` — la aplicación completa (interfaz, tickets, chatbot).
-- `schema.sql` — crea la tabla de tickets en la base de datos.
+- `schema.sql` — crea las tablas de **tickets** y **usuarios** (técnicos y administrador) en la base de datos.
 - `README_DESPLIEGUE.md` — esta guía.
+
+> **Si ya tenías la base de datos creada antes:** vuelve a abrir el **SQL Editor** de Supabase y ejecuta de nuevo `schema.sql` completo. Es seguro: no borra tus tickets y solo agrega la tabla `usuarios` con el personal de soporte. Si no lo ejecutas, la app igual funciona con una lista de técnicos por defecto, pero los usuarios que agregues no se guardarán de forma permanente.
 
 **Login de demostración:** usuario `admin@igss` · contraseña `igss2025`
 
@@ -64,7 +66,7 @@ Ese enlace es el que adjuntas en tu tesis.
 ---
 
 ## Cómo se relaciona con tu tesis
-- **Módulos:** Login, Dashboard, Tickets (registrar/clasificar/asignar/dar seguimiento), Base de conocimientos, Usuarios y Configuración.
+- **Módulos:** Login, Dashboard, Tickets (registrar/clasificar/asignar a un técnico/dar seguimiento), Base de conocimientos, Usuarios (personal de soporte con roles Administrador y Técnico, y carga de trabajo por técnico) y Configuración.
 - **Chatbot:** interpreta la intención del usuario, propone una solución de la base de conocimientos y, si el problema persiste, **crea el ticket automáticamente** en la misma base de datos (queda marcado con origen `Chatbot`).
 - **Base de datos:** PostgreSQL en Supabase; los tickets se guardan de forma permanente.
 
