@@ -49,7 +49,7 @@
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--borde)}
   th{color:#888;font-weight:600;font-size:12px}
-  .badge{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;display:inline-block;white-space:nowrap}
   .b-Abierto{background:#e7f0ff;color:var(--azul)}
   .b-Enproceso{background:#fff5db;color:var(--amarillo)}
   .b-Cerrado{background:#e6f7ec;color:var(--verde)}
@@ -71,6 +71,7 @@
   .cm{max-width:90%;padding:9px 12px;border-radius:13px;font-size:13px;line-height:1.35}
   .cm.bot{background:#fff;border:1px solid var(--borde);align-self:flex-start;border-bottom-left-radius:3px}
   .cm.user{background:var(--morado);color:#fff;align-self:flex-end;border-bottom-right-radius:3px}
+  .cm code{background:#eef3ee;padding:0 4px;border-radius:4px;font-size:12px}
   #cquick{display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px;background:var(--gris)}
   #cquick button{background:#fff;border:1px solid var(--morado);color:var(--morado);border-radius:16px;padding:5px 10px;font-size:11px;cursor:pointer}
   #cin{display:flex;border-top:1px solid var(--borde);padding:8px;gap:6px}
@@ -994,7 +995,19 @@ function reAskStep(){ const last=(flow.i+1>=flow.hit.p.length);
 let ticketOffer=null;
 const DEFAULT_QUICK=['No hay internet','La impresora no imprime','No puedo enviar correos','Olvidé mi contraseña','Mi equipo está lento'];
 function toggleChat(){ const b=document.getElementById('cbox'); b.style.display=b.style.display==='flex'?'none':'flex'; }
-function cAdd(t,who){ const d=document.createElement('div'); d.className='cm '+who; d.textContent=t;
+/* Formato ligero para las respuestas del asistente: primero se escapa el HTML (seguridad)
+   y luego se aplican negritas, cursivas, código y saltos de línea entre pasos numerados */
+function mdLite(t){
+  let h=String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  h=h.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')
+     .replace(/`([^`\n]+)`/g,'<code>$1</code>')
+     .replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s.,;:)!?]|$)/g,'$1<i>$2</i>');
+  h=h.replace(/\n/g,'<br>');
+  h=h.replace(/([.:!?)])\s+(\d{1,2})\.\s/g,'$1<br>$2. ');
+  return h;
+}
+function cAdd(t,who){ const d=document.createElement('div'); d.className='cm '+who;
+  if(who==='bot') d.innerHTML=mdLite(t); else d.textContent=t;
   cmsgs.appendChild(d); cmsgs.scrollTop=cmsgs.scrollHeight; }
 function setQuick(items){ document.getElementById('cquick').innerHTML=items.map(q=>`<button data-q="${q.replace(/"/g,'&quot;')}" onclick="quickSend(this.dataset.q)">${q}</button>`).join(''); }
 function quickSend(t){ document.getElementById('ctxt').value=t; cSend(); }
