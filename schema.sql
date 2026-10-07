@@ -14,6 +14,12 @@ create table if not exists tickets (
   created_at  timestamptz not null default now()
 );
 
+-- Columnas de resolución (cómo quedó resuelto el ticket al cerrarlo)
+alter table tickets add column if not exists solucion       text;        -- descripción de la solución
+alter table tickets add column if not exists solucion_fotos  text;        -- fotos de evidencia (JSON con imágenes)
+alter table tickets add column if not exists cerrado_por      text;        -- técnico que resolvió
+alter table tickets add column if not exists cerrado_at       timestamptz; -- fecha/hora de cierre
+
 -- Seguridad a nivel de fila (RLS)
 alter table tickets enable row level security;
 
@@ -60,3 +66,12 @@ from (values
   ('Soporte técnico 2',  'tecnico2@igss', 'Técnico')
 ) as v(nombre, correo, rol)
 where not exists (select 1 from usuarios);
+
+-- Técnicos de soporte adicionales (se agregan aunque la tabla ya tenga datos)
+insert into usuarios (nombre, correo, rol)
+select v.nombre, v.correo, v.rol
+from (values
+  ('Soporte técnico 3',  'tecnico3@igss', 'Técnico'),
+  ('Soporte técnico 4',  'tecnico4@igss', 'Técnico')
+) as v(nombre, correo, rol)
+where not exists (select 1 from usuarios u where u.correo = v.correo);
