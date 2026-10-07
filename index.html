@@ -389,8 +389,14 @@ async function updateTecnico(id,tecnico){
   await updateTicketFields(id,{tecnico:tecnico||null, historial:hist});
 }
 async function updateTicketFields(id,fields){
-  if(useDB){ try{ const {error}=await db.from('tickets').update(fields).eq('id',id); if(error){ alert('Error al guardar: '+error.message); } }catch(e){ alert('Error: '+e.message); } }
+  if(useDB){
+    try{
+      const {error}=await db.from('tickets').update(fields).eq('id',id);
+      if(error){ alert('Error al guardar: '+error.message); return false; }
+    }catch(e){ alert('Error: '+e.message); return false; }
+  }
   const tk=tickets.find(x=>x.id==id); if(tk) Object.assign(tk,fields); render();
+  return true;
 }
 
 /* ---------- Modal: detalle y cierre de tickets ---------- */
@@ -478,12 +484,14 @@ async function submitClose(){
   if(!sol){ document.getElementById('mMsg').textContent='Describa cómo se resolvió el problema antes de cerrar.'; return; }
   const tk=tickets.find(x=>x.id==closingId)||{};
   const hist=histAdd(tk,'Ticket resuelto y cerrado'+(tec?(' por '+tec):''), tec||actor());
-  await updateTicketFields(closingId,{
+  const ok=await updateTicketFields(closingId,{
     estado:'Cerrado', solucion:sol,
     solucion_fotos: closeFotos.length? JSON.stringify(closeFotos): null,
     cerrado_por: tec||null, cerrado_at: new Date().toISOString(),
     tecnico: tec||null, historial:hist
   });
+  // Si no se guardó, la ventana queda abierta y no se pierde lo escrito
+  if(!ok){ document.getElementById('mMsg').textContent='No se guardó. Su texto sigue aquí; corrija el problema e intente de nuevo.'; return; }
   closeModal();
 }
 /* Fotos al CREAR un ticket */

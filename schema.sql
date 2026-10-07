@@ -81,3 +81,6 @@ from (values
   ('Soporte técnico 4',  'tecnico4@igss', 'Técnico')
 ) as v(nombre, correo, rol)
 where not exists (select 1 from usuarios u where u.correo = v.correo);
+
+-- Refresca la caché de la API para que reconozca las columnas nuevas de inmediato
+notify pgrst, 'reload schema';
