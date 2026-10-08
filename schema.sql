@@ -101,5 +101,61 @@ drop policy if exists "acceso_demo_evaluacion" on evaluacion_chat;
 create policy "acceso_demo_evaluacion" on evaluacion_chat
   for all to anon using (true) with check (true);
 
+
+-- ============================================================
+-- Asignación automática de tickets
+-- Si un ticket abierto lleva más de 10 minutos sin técnico asignado,
+-- se asigna al técnico activo con menos tickets abiertos o en proceso.
+-- La revisión se ejecuta cada minuto en la base de datos (pg_cron).
+-- ============================================================
+create or replace function asignar_tickets_pendientes(minutos integer default 10)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  t   record;
+  tec text;
+  n   integer := 0;
+begin
+  for t in
+    select id from tickets
+    where (tecnico is null or tecnico = '')
+      and estado <> 'Cerrado'
+      and created_at < now() - make_interval(mins => minutos)
+    order by created_at
+    for update skip locked
+  loop
+    -- técnico activo más desocupado (menos tickets sin cerrar); en empate, el de menor id
+    select u.nombre into tec
+    from usuarios u
+    where u.activo and u.rol = 'Técnico'
+    order by (select count(*) from tickets k
+              where k.tecnico = u.nombre and k.estado <> 'Cerrado') asc, u.id asc
+    limit 1;
+
+    exit when tec is null;   -- no hay técnicos activos
+
+    update tickets
+       set tecnico   = tec,
+           historial = (coalesce(nullif(historial, ''), '[]')::jsonb
+                        || jsonb_build_array(jsonb_build_object(
+                             't',   to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                             'e',   'Asignado automáticamente a ' || tec || ' (sin asignar por más de ' || minutos || ' minutos)',
+                             'por', 'Sistema')))::text
+     where id = t.id;
+    n := n + 1;
+  end loop;
+  return n;
+end;
+$$;
+
+-- Programar la revisión cada minuto (pg_cron)
+create extension if not exists pg_cron;
+select cron.unschedule(jobid) from cron.job where jobname = 'asignacion-automatica';
+select cron.schedule('asignacion-automatica', '* * * * *', 'select asignar_tickets_pendientes(10)');
+
+
 -- Refresca la caché de la API para que reconozca las columnas nuevas de inmediato
 notify pgrst, 'reload schema';

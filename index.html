@@ -1166,7 +1166,13 @@ function fillSelects(){
   cfgCats.innerHTML=CATS.map(c=>`<span class="badge b-Abierto" style="margin:3px">${c}</span>`).join('');
   setQuick(DEFAULT_QUICK);
 }
-function boot(){ if(!db) initDB(); fillSelects(); renderKB(); loadUsuarios(); loadTickets(); }
+function boot(){ if(!db) initDB(); fillSelects(); renderKB(); loadUsuarios(); loadTickets();
+  // refresca la lista cada minuto (tickets nuevos del chatbot y asignaciones automáticas),
+  // sin interrumpir si hay una ventana abierta
+  if(!window._refresco) window._refresco=setInterval(()=>{
+    if(document.getElementById('modalBg').style.display!=='flex') loadTickets();
+  },60000);
+}
 document.getElementById('ctxt').addEventListener('keydown',e=>{ if(e.key==='Enter')cSend(); });
 document.getElementById('lpass').addEventListener('keydown',e=>{ if(e.key==='Enter')login(); });
 // El chatbot funciona desde la pantalla de inicio: el personal de salud no necesita usuario para reportar
