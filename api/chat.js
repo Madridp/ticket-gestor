@@ -43,7 +43,8 @@ Usa esa línea solo cuando de verdad corresponda registrar el ticket; el resto d
   const payload = {
     system_instruction: { parts: [{ text: system + '\n\nBASE DE CONOCIMIENTOS RELEVANTE:\n' + context }] },
     contents,
-    generationConfig: { temperature: 0.4, maxOutputTokens: 700 }
+    // El modelo usa parte del límite para "pensar"; con 700 se cortaban las respuestas.
+    generationConfig: { temperature: 0.4, maxOutputTokens: 4096 }
   };
 
   try {
@@ -56,9 +57,18 @@ Usa esa línea solo cuando de verdad corresponda registrar el ticket; el resto d
     });
     const data = await r.json();
     if (data.error) { res.status(200).json({ reply: null, error: data.error.message }); return; }
-    const reply = (data.candidates && data.candidates[0] && data.candidates[0].content
-      && data.candidates[0].content.parts.map(p => p.text).join('')) || null;
-    res.status(200).json({ reply });
+    const cand = (data.candidates && data.candidates[0]) || {};
+    const parts = (cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
+    let reply = parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('').trim();
+    // Si aun así se cortó por longitud, se recorta hasta la última oración completa
+    if (reply && cand.finishReason === 'MAX_TOKENS') {
+      // último final de oración real (no el punto de un número de paso como "3.")
+      let cut = -1; const re = /[^\d\s][.!?](?=\s|$)/g; let m;
+      while ((m = re.exec(reply)) !== null) cut = m.index + 1;
+      if (cut > 40) reply = reply.slice(0, cut + 1);
+      reply += '\n\nSi necesita más ayuda, cuénteme y seguimos paso a paso.';
+    }
+    res.status(200).json({ reply: reply || null, finish: cand.finishReason || null });
   } catch (e) {
     res.status(200).json({ reply: null, error: String(e) });
   }
